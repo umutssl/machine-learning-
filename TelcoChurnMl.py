@@ -1,0 +1,307 @@
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.model_selection import GridSearchCV, cross_validate
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from catboost import CatBoostClassifier
+from lightgbm import LGBMClassifier
+from xgboost import XGBClassifier
+from sklearn.svm import SVC
+import warnings
+warnings.simplefilter(action="ignore")
+
+
+df = pd.read_csv("Telco-Customer-Churn.csv")
+
+
+df.drop("customerID", axis=1, inplace=True)
+
+df["TotalCharges"] = pd.to_numeric(df["TotalCharges"], errors='coerce')
+df["TotalCharges"].fillna(df["TotalCharges"].median(), inplace=True)
+
+
+df["Churn"] = df["Churn"].apply(lambda x: 1 if x == "Yes" else 0)
+
+
+def check_df(dataframe, head=5):
+ 
+    print("########## Shape ##########")
+    print(dataframe.shape)
+    print("\n########## Types ##########")
+    print(dataframe.dtypes)
+    print("\n########## Head ##########")
+    print(dataframe.head(head))
+    print("\n########## Quantiles ##########")
+    print(dataframe.select_dtypes(include=['float64', 'int64']).quantile([0, 0.05, 0.5, 0.95, 0.99, 1]).T)
+
+
+check_df(df)
+
+def grab_col_names(dataframe, cat_th=10, car_th=20):
+  
+    # cat_cols, cat_but_car
+    cat_cols = [col for col in dataframe.columns if dataframe[col].dtypes == "O"]
+    num_but_cat = [col for col in dataframe.columns if dataframe[col].nunique() < cat_th and dataframe[col].dtypes != "O"]
+    cat_but_car = [col for col in dataframe.columns if dataframe[col].nunique() > car_th and dataframe[col].dtypes == "O"]
+    cat_cols = cat_cols + num_but_cat
+    cat_cols = [col for col in cat_cols if col not in cat_but_car]
+    # num_cols
+    num_cols = [col for col in dataframe.columns if dataframe[col].dtypes != "O"]
+    num_cols = [col for col in num_cols if col not in num_but_cat]
+
+    print(f"Observations: {dataframe.shape[0]}")
+    print(f"Variables: {dataframe.shape[1]}")
+    print(f'cat_cols: {len(cat_cols)}')
+    print(f'num_cols: {len(num_cols)}')
+    print(f'cat_but_car: {len(cat_but_car)}')
+    print(f'num_but_cat: {len(num_but_cat)}')
+    return cat_cols, num_cols, cat_but_car
+
+cat_cols, num_cols, cat_but_car = grab_col_names(df)
+
+
+def cat_summary(dataframe, col_name, plot=False):
+    print(pd.DataFrame({col_name: dataframe[col_name].value_counts(),
+                        "Ratio": 100 * dataframe[col_name].value_counts() / len(dataframe)}))
+    print("##########################################")
+    if plot:
+        sns.countplot(x=col_name, data=dataframe)
+        plt.show()
+
+
+
+def num_summary(dataframe, numerical_col, plot=False):
+    quantiles = [0.05, 0.10, 0.20, 0.30, 0.40, 0.50, 0.60, 0.70, 0.80, 0.90, 0.95, 0.99]
+    print(dataframe[numerical_col].describe(quantiles).T)
+    if plot:
+        dataframe[numerical_col].hist(bins=20)
+        plt.xlabel(numerical_col)
+        plt.title(numerical_col)
+        plt.show()
+
+
+
+def target_summary_with_num(dataframe, target, numerical_col):
+    print(dataframe.groupby(target).agg({numerical_col: "mean"}), end="\n\n\n")
+
+
+
+
+# 2. AYKIRI DEĞER ANALİZİ 
+
+
+def outlier_thresholds(dataframe, col_name, q1=0.05, q3=0.95):
+    quartile1 = dataframe[col_name].quantile(q1)
+    quartile3 = dataframe[col_name].quantile(q3)
+    interquantile_range = quartile3 - quartile1
+    up_limit = quartile3 + 1.5 * interquantile_range
+    low_limit = quartile1 - 1.5 * interquantile_range
+    return low_limit, up_limit
+
+def check_outlier(dataframe, col_name):
+    low_limit, up_limit = outlier_thresholds(dataframe, col_name)
+    if dataframe[(dataframe[col_name] > up_limit) | (dataframe[col_name] < low_limit)].any(axis=None):
+        return True
+    else:
+        return False
+
+def replace_with_thresholds(dataframe, variable, q1=0.05, q3=0.95):
+    low_limit, up_limit = outlier_thresholds(dataframe, variable, q1=0.05, q3=0.95)
+    dataframe.loc[(dataframe[variable] < low_limit), variable] = low_limit
+    dataframe.loc[(dataframe[variable] > up_limit), variable] = up_limit
+
+
+for col in num_cols:
+    if check_outlier(df, col):
+        replace_with_thresholds(df, col)
+
+# -------------------------------------------------------------------
+# 3. ÖZNİTELİK MÜHENDİSLİĞİ (Orijinal Koddan Alınmıştır)
+# -------------------------------------------------------------------
+
+# Tenure (Kıdem) bazlı kategorik değişken
+df.loc[(df["tenure"]>=0) & (df["tenure"]<=12),"NEW_TENURE_YEAR"] = "0-1 Year"
+df.loc[(df["tenure"]>12) & (df["tenure"]<=24),"NEW_TENURE_YEAR"] = "1-2 Year"
+df.loc[(df["tenure"]>24) & (df["tenure"]<=36),"NEW_TENURE_YEAR"] = "2-3 Year"
+df.loc[(df["tenure"]>36) & (df["tenure"]<=48),"NEW_TENURE_YEAR"] = "3-4 Year"
+df.loc[(df["tenure"]>48) & (df["tenure"]<=60),"NEW_TENURE_YEAR"] = "4-5 Year"
+df.loc[(df["tenure"]>60) & (df["tenure"]<=72),"NEW_TENURE_YEAR"] = "5-6 Year"
+
+# 1 veya 2 yıllık sözleşmeli müşteriler (Engaged/Nişanlı)
+df["NEW_Engaged"] = df["Contract"].apply(lambda x: 1 if x in ["One year","Two year"] else 0)
+
+# Destek almayan müşteriler
+df["NEW_noProt"] = df.apply(lambda x: 1 if (x["OnlineBackup"] != "Yes") or (x["DeviceProtection"] != "Yes") or (x["TechSupport"] != "Yes") else 0, axis=1)
+
+# Aylık sözleşmeli ve genç müşteriler
+df["NEW_Young_Not_Engaged"] = df.apply(lambda x: 1 if (x["NEW_Engaged"] == 0) and (x["SeniorCitizen"] == 0) else 0, axis=1)
+
+# Alınan toplam hizmet sayısı
+df['NEW_TotalServices'] = (df[['PhoneService', 'InternetService', 'OnlineSecurity',
+                               'OnlineBackup', 'DeviceProtection', 'TechSupport',
+                               'StreamingTV', 'StreamingMovies']]== 'Yes').sum(axis=1)
+
+# Herhangi bir yayın hizmeti alanlar
+df["NEW_FLAG_ANY_STREAMING"] = df.apply(lambda x: 1 if (x["StreamingTV"] == "Yes") or (x["StreamingMovies"] == "Yes") else 0, axis=1)
+
+# Otomatik ödeme yapanlar
+df["NEW_FLAG_AutoPayment"] = df["PaymentMethod"].apply(lambda x: 1 if x in ["Bank transfer (automatic)","Credit card (automatic)"] else 0)
+
+# Ortalama aylık ödeme (tenure + 1, sıfır bölmeyi engellediği için korundu)
+df["NEW_AVG_Charges"] = df["TotalCharges"] / (df["tenure"] + 1)
+
+# Mevcut fiyata göre artış
+df["NEW_Increase"] = df["NEW_AVG_Charges"] / df["MonthlyCharges"]
+
+# Hizmet başına ortalama ücret (Toplam hizmet sayısı + 1, sıfır bölmeyi engellediği için)
+df["NEW_AVG_Service_Fee"] = df["MonthlyCharges"] / (df['NEW_TotalServices'] + 1)
+
+# -------------------------------------------------------------------
+# 4. ENCODING 
+# -------------------------------------------------------------------
+
+
+cat_cols, num_cols, cat_but_car = grab_col_names(df)
+
+# LABEL ENCODING 
+def label_encoder(dataframe, binary_col):
+    labelencoder = LabelEncoder()
+ 
+    dataframe[binary_col] = labelencoder.fit_transform(dataframe[binary_col])
+    return dataframe
+
+binary_cols = [col for col in df.columns if df[col].dtypes == "O" and df[col].nunique() == 2]
+
+binary_cols.remove('gender')
+
+for col in binary_cols:
+    df = label_encoder(df, col)
+
+# ONE-HOT ENCODING 
+cat_cols = [col for col in cat_cols if col not in binary_cols and col not in ["Churn", "NEW_TotalServices"]]
+
+def one_hot_encoder(dataframe, categorical_cols, drop_first=True):
+    dataframe = pd.get_dummies(dataframe, columns=categorical_cols, drop_first=drop_first)
+    return dataframe
+
+df = one_hot_encoder(df, cat_cols, drop_first=True)
+
+
+# 5.SCALING
+
+
+y = df["Churn"]
+X = df.drop("Churn", axis=1)
+
+
+scaler = StandardScaler()
+
+X[num_cols] = scaler.fit_transform(X[num_cols])
+
+ #BASE MODEL
+
+
+models = [('LR', LogisticRegression(random_state=12345)),
+          ('KNN', KNeighborsClassifier()),
+          ('CART', DecisionTreeClassifier(random_state=12345)),
+          ('RF', RandomForestClassifier(random_state=12345)),
+          ('SVM', SVC(gamma='auto', random_state=12345)), 
+          ('XGB', XGBClassifier(random_state=12345, use_label_encoder=False, eval_metric='logloss')),
+          ("LightGBM", LGBMClassifier(random_state=12345)),
+          ("CatBoost", CatBoostClassifier(verbose=False, random_state=12345))]
+
+print("\n########## FINAL BASE MODEL SONUÇLARI (Ölçeklenmiş Veri) ##########")
+for name, model in models:
+    cv_results = cross_validate(model, X, y, cv=10, scoring=["accuracy", "f1", "roc_auc", "precision", "recall"])
+    print(f"########## {name} ##########")
+    print(f"Accuracy: {round(cv_results['test_accuracy'].mean(), 4)}")
+    print(f"Auc: {round(cv_results['test_roc_auc'].mean(), 4)}")
+    print(f"Recall: {round(cv_results['test_recall'].mean(), 4)}")
+    print(f"Precision: {round(cv_results['test_precision'].mean(), 4)}")
+    print(f"F1: {round(cv_results['test_f1'].mean(), 4)}")
+
+
+
+# Random Forests 
+rf_model = RandomForestClassifier(random_state=17)
+
+rf_params = {"max_depth": [5, 8, None],
+             "max_features": [3, 5, 7, "sqrt"], 
+             "min_samples_split": [2, 5, 8, 15, 20],
+             "n_estimators": [100, 200, 500]}
+
+rf_best_grid = GridSearchCV(rf_model, rf_params, cv=5, n_jobs=-1, verbose=False).fit(X, y)
+rf_final = rf_model.set_params(**rf_best_grid.best_params_, random_state=17).fit(X, y)
+cv_results = cross_validate(rf_final, X, y, cv=10, scoring=["accuracy", "f1", "roc_auc"])
+print(f"\n########## RANDOM FOREST FINAL (Tuned) ##########")
+print(f"Accuracy: {round(cv_results['test_accuracy'].mean(), 4)}")
+print(f"Auc: {round(cv_results['test_roc_auc'].mean(), 4)}")
+
+
+# XGBoost 
+xgboost_model = XGBClassifier(random_state=17, use_label_encoder=False, eval_metric='logloss')
+xgboost_params = {"learning_rate": [0.1, 0.01, 0.001],
+                  "max_depth": [5, 8, 12, 15, 20],
+                  "n_estimators": [100, 500, 1000],
+                  "colsample_bytree": [0.5, 0.7, 1]}
+
+xgboost_best_grid = GridSearchCV(xgboost_model, xgboost_params, cv=5, n_jobs=-1, verbose=False).fit(X, y)
+xgboost_final = xgboost_model.set_params(**xgboost_best_grid.best_params_, random_state=17).fit(X, y)
+cv_results = cross_validate(xgboost_final, X, y, cv=10, scoring=["accuracy", "f1", "roc_auc"])
+print(f"########## XGBOOST FINAL (Tuned) ##########")
+print(f"Accuracy: {round(cv_results['test_accuracy'].mean(), 4)}")
+print(f"Auc: {round(cv_results['test_roc_auc'].mean(), 4)}")
+
+
+# LightGBM 
+lgbm_model = LGBMClassifier(random_state=17)
+lgbm_params = {"learning_rate": [0.01, 0.1, 0.001],
+               "n_estimators": [100, 300, 500, 1000],
+               "colsample_bytree": [0.5, 0.7, 1]}
+
+lgbm_best_grid = GridSearchCV(lgbm_model, lgbm_params, cv=5, n_jobs=-1, verbose=False).fit(X, y)
+lgbm_final = lgbm_model.set_params(**lgbm_best_grid.best_params_, random_state=17).fit(X, y)
+cv_results = cross_validate(lgbm_final, X, y, cv=10, scoring=["accuracy", "f1", "roc_auc"])
+print(f"########## LIGHTGBM FINAL (Tuned) ##########")
+print(f"Accuracy: {round(cv_results['test_accuracy'].mean(), 4)}")
+print(f"Auc: {round(cv_results['test_roc_auc'].mean(), 4)}")
+
+
+# CatBoost 
+catboost_model = CatBoostClassifier(random_state=17, verbose=False)
+catboost_params = {"iterations": [200, 500],
+                   "learning_rate": [0.01, 0.1],
+                   "depth": [3, 6]}
+
+catboost_best_grid = GridSearchCV(catboost_model, catboost_params, cv=5, n_jobs=-1, verbose=False).fit(X, y)
+catboost_final = catboost_model.set_params(**catboost_best_grid.best_params_, random_state=17).fit(X, y)
+cv_results = cross_validate(catboost_final, X, y, cv=10, scoring=["accuracy", "f1", "roc_auc"])
+print(f"########## CATBOOST FINAL (Tuned) ##########")
+print(f"Accuracy: {round(cv_results['test_accuracy'].mean(), 4)}")
+print(f"Auc: {round(cv_results['test_roc_auc'].mean(), 4)}")
+
+
+
+# 7. FEATURE IMPORTANCE 
+
+def plot_importance(model, features, num=len(X), save=False):
+    feature_imp = pd.DataFrame({'Value': model.feature_importances_, 'Feature': features.columns})
+    plt.figure(figsize=(10, 10))
+    sns.set(font_scale=1)
+    sns.barplot(x="Value", y="Feature", data=feature_imp.sort_values(by="Value",
+                                                                     ascending=False)[0:num])
+    plt.title('Features')
+    plt.tight_layout()
+    plt.show()
+    if save:
+        plt.savefig('importances.png')
+
+plot_importance(rf_final, X)
+plot_importance(xgboost_final, X)
+plot_importance(lgbm_final, X)
+plot_importance(catboost_final, X)
