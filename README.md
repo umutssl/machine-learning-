@@ -1,4 +1,7 @@
 📘 Telco Customer Churn Prediction
+
+
+
 🧠 Project Overview
 
 This project aims to predict customer churn (whether a customer leaves the company) using the Telco Customer Churn dataset.
@@ -122,3 +125,4 @@ All models achieved strong predictive results after tuning, with ensemble method
 | `scikit-learn`                    | Preprocessing, model training, evaluation |
 | `xgboost`, `lightgbm`, `catboost` | Advanced gradient boosting models         |
 | `warnings`                        | Ignore unnecessary logs                   |
+
