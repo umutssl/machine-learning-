@@ -92,7 +92,7 @@ def target_summary_with_num(dataframe, target, numerical_col):
 
 
 
-# 2. AYKIRI DEĞER ANALİZİ 
+
 
 
 def outlier_thresholds(dataframe, col_name, q1=0.05, q3=0.95):
@@ -120,11 +120,7 @@ for col in num_cols:
     if check_outlier(df, col):
         replace_with_thresholds(df, col)
 
-# -------------------------------------------------------------------
-# 3. ÖZNİTELİK MÜHENDİSLİĞİ (Orijinal Koddan Alınmıştır)
-# -------------------------------------------------------------------
 
-# Tenure (Kıdem) bazlı kategorik değişken
 df.loc[(df["tenure"]>=0) & (df["tenure"]<=12),"NEW_TENURE_YEAR"] = "0-1 Year"
 df.loc[(df["tenure"]>12) & (df["tenure"]<=24),"NEW_TENURE_YEAR"] = "1-2 Year"
 df.loc[(df["tenure"]>24) & (df["tenure"]<=36),"NEW_TENURE_YEAR"] = "2-3 Year"
@@ -132,38 +128,34 @@ df.loc[(df["tenure"]>36) & (df["tenure"]<=48),"NEW_TENURE_YEAR"] = "3-4 Year"
 df.loc[(df["tenure"]>48) & (df["tenure"]<=60),"NEW_TENURE_YEAR"] = "4-5 Year"
 df.loc[(df["tenure"]>60) & (df["tenure"]<=72),"NEW_TENURE_YEAR"] = "5-6 Year"
 
-# 1 veya 2 yıllık sözleşmeli müşteriler (Engaged/Nişanlı)
+
 df["NEW_Engaged"] = df["Contract"].apply(lambda x: 1 if x in ["One year","Two year"] else 0)
 
-# Destek almayan müşteriler
+
 df["NEW_noProt"] = df.apply(lambda x: 1 if (x["OnlineBackup"] != "Yes") or (x["DeviceProtection"] != "Yes") or (x["TechSupport"] != "Yes") else 0, axis=1)
 
-# Aylık sözleşmeli ve genç müşteriler
+
 df["NEW_Young_Not_Engaged"] = df.apply(lambda x: 1 if (x["NEW_Engaged"] == 0) and (x["SeniorCitizen"] == 0) else 0, axis=1)
 
-# Alınan toplam hizmet sayısı
+
 df['NEW_TotalServices'] = (df[['PhoneService', 'InternetService', 'OnlineSecurity',
                                'OnlineBackup', 'DeviceProtection', 'TechSupport',
                                'StreamingTV', 'StreamingMovies']]== 'Yes').sum(axis=1)
 
-# Herhangi bir yayın hizmeti alanlar
+
 df["NEW_FLAG_ANY_STREAMING"] = df.apply(lambda x: 1 if (x["StreamingTV"] == "Yes") or (x["StreamingMovies"] == "Yes") else 0, axis=1)
 
-# Otomatik ödeme yapanlar
+
 df["NEW_FLAG_AutoPayment"] = df["PaymentMethod"].apply(lambda x: 1 if x in ["Bank transfer (automatic)","Credit card (automatic)"] else 0)
 
-# Ortalama aylık ödeme (tenure + 1, sıfır bölmeyi engellediği için korundu)
+
 df["NEW_AVG_Charges"] = df["TotalCharges"] / (df["tenure"] + 1)
 
-# Mevcut fiyata göre artış
+
 df["NEW_Increase"] = df["NEW_AVG_Charges"] / df["MonthlyCharges"]
 
-# Hizmet başına ortalama ücret (Toplam hizmet sayısı + 1, sıfır bölmeyi engellediği için)
-df["NEW_AVG_Service_Fee"] = df["MonthlyCharges"] / (df['NEW_TotalServices'] + 1)
 
-# -------------------------------------------------------------------
-# 4. ENCODING 
-# -------------------------------------------------------------------
+df["NEW_AVG_Service_Fee"] = df["MonthlyCharges"] / (df['NEW_TotalServices'] + 1)
 
 
 cat_cols, num_cols, cat_but_car = grab_col_names(df)
@@ -305,3 +297,4 @@ plot_importance(rf_final, X)
 plot_importance(xgboost_final, X)
 plot_importance(lgbm_final, X)
 plot_importance(catboost_final, X)
+
