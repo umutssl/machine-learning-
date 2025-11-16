@@ -184,7 +184,7 @@ def one_hot_encoder(dataframe, categorical_cols, drop_first=True):
 df = one_hot_encoder(df, cat_cols, drop_first=True)
 
 
-# 5.SCALING
+# SCALING
 
 
 y = df["Churn"]
@@ -279,7 +279,7 @@ print(f"Auc: {round(cv_results['test_roc_auc'].mean(), 4)}")
 
 
 
-# 7. FEATURE IMPORTANCE 
+#  FEATURE IMPORTANCE 
 
 def plot_importance(model, features, num=len(X), save=False):
     feature_imp = pd.DataFrame({'Value': model.feature_importances_, 'Feature': features.columns})
@@ -297,4 +297,5 @@ plot_importance(rf_final, X)
 plot_importance(xgboost_final, X)
 plot_importance(lgbm_final, X)
 plot_importance(catboost_final, X)
+
 
